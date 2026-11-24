@@ -1,0 +1,126 @@
+# starkedev's patched omp: an upstream release tag plus the commits on the
+# starkedev/release branch (see its `git log <upstream tag>..`), built once and
+# published as a GitHub release that every machine installs from
+# (~/.omp/bin/omp-install). Push a tag `v<upstream version>-sd.<n>` on that
+# branch to run it.
+#
+# Mirrors upstream's release_binary and release_smoke jobs
+# (.github/workflows/ci.yml): bun cross-compiles both targets on one Linux
+# runner, with the native addons taken prebuilt from npm for the same version,
+# and scripts/ci-macos-sign.sh signs the macOS binary ad hoc with the JIT
+# entitlements. Each binary then runs on its own platform before anything
+# publishes; the macOS one on GitHub's macos-15, the one runner here that
+# isn't Blacksmith's.
+name: starkedev release
+
+on:
+   push:
+      tags: ["v*-sd.*"]
+
+permissions:
+   contents: read
+
+jobs:
+   build:
+      runs-on: blacksmith-4vcpu-ubuntu-2404
+      steps:
+         - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+           with:
+              fetch-depth: 0
+         - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+           with:
+              # The version upstream's ci.yml builds releases with.
+              bun-version: 1.4.4
+         - run: bun install --frozen-lockfile
+
+         - name: Install prebuilt native addons from npm
+           run: |
+              set -euo pipefail
+              version="$(jq -r .version packages/natives/package.json)"
+              for target in linux-x64 darwin-arm64; do
+                dir="$RUNNER_TEMP/natives-$target"
+                mkdir -p "$dir"
+                curl -fsSL "$(npm view "@oh-my-pi/pi-natives-$target@$version" dist.tarball)" | tar -xz -C "$dir"
+                cp "$dir"/package/*.node packages/natives/native/
+              done
+              ls -l packages/natives/native/*.node
+
+         - name: Typecheck and test the patched code
+           run: |
+              bun run --cwd packages/coding-agent check:types
+              bun test --cwd packages/coding-agent test/extensibility/ext-model-query.test.ts
+
+         - name: Build binaries
+           env:
+              RELEASE_TARGETS: linux-x64,darwin-arm64
+           run: bun run ci:release:build-binaries
+
+         - name: Sign the macOS binary ad hoc
+           run: bash scripts/ci-macos-sign.sh packages/coding-agent/binaries/omp-darwin-arm64
+
+         - name: Smoke the Linux binary
+           run: |
+              set -euo pipefail
+              binary=packages/coding-agent/binaries/omp-linux-x64
+              home="$(mktemp -d)"
+              HOME="$home" XDG_DATA_HOME="$home/xdg" "$binary" --version
+              HOME="$home" XDG_DATA_HOME="$home/xdg" "$binary" --smoke-test
+
+         - name: Upload binaries
+           uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+           with:
+              name: omp-binaries
+              path: |
+                 packages/coding-agent/binaries/omp-linux-x64
+                 packages/coding-agent/binaries/omp-darwin-arm64
+              if-no-files-found: error
+
+   # The only check that the ad-hoc signed Mach-O launches on Apple Silicon.
+   smoke-macos:
+      needs: build
+      runs-on: macos-15
+      permissions:
+         contents: read
+      steps:
+         - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+           with:
+              name: omp-binaries
+              path: binaries
+         - name: Smoke the macOS binary
+           run: |
+              set -euo pipefail
+              binary=binaries/omp-darwin-arm64
+              chmod +x "$binary"
+              codesign --verify --strict --verbose=2 "$binary"
+              home="$(mktemp -d)"
+              HOME="$home" XDG_DATA_HOME="$home/xdg" "$binary" --version
+              HOME="$home" XDG_DATA_HOME="$home/xdg" "$binary" --smoke-test
+
+   publish:
+      needs: [build, smoke-macos]
+      runs-on: blacksmith-4vcpu-ubuntu-2404
+      permissions:
+         contents: write
+      steps:
+         - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+           with:
+              fetch-depth: 0
+         - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+           with:
+              name: omp-binaries
+              path: binaries
+         - name: Publish the release
+           env:
+              GH_TOKEN: ${{ github.token }}
+              TAG: ${{ github.ref_name }}
+           run: |
+              set -euo pipefail
+              base="${TAG%-sd.*}"
+              git fetch --no-tags https://github.com/can1357/oh-my-pi.git "refs/tags/$base:refs/tags/$base"
+              git log --reverse --format='- %s' "$base..$GITHUB_SHA" -- . ':!.github' > "$RUNNER_TEMP/patches.md"
+              printf 'omp %s with starkedev'"'"'s patches:\n\n' "$base" | cat - "$RUNNER_TEMP/patches.md" > "$RUNNER_TEMP/notes.md"
+              cd binaries
+              sha256sum omp-linux-x64 omp-darwin-arm64 > SHA256SUMS
+              gh release create "$TAG" omp-linux-x64 omp-darwin-arm64 SHA256SUMS \
+                 --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+                 --title "$TAG" --notes-file "$RUNNER_TEMP/notes.md"
