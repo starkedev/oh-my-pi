@@ -591,6 +591,14 @@ export interface ExtensionModelQuery {
 	 * identity. Compare it; do not persist it (the vocabulary tracks new releases).
 	 */
 	family(model: Model): string;
+	/**
+	 * The `retry.fallbackChains` models core would move to when `spec` (a model string
+	 * or role alias) fails, in order, excluding the primary. Chains are walked the way
+	 * eval's `completion()` walks them: each candidate's own chain follows it. Only
+	 * authenticated models from enabled providers are returned; empty when retry or
+	 * model fallback is off, or when `spec` does not resolve.
+	 */
+	fallbacks(spec: string): Model[];
 }
 
 /** Runtime host mode exposed to Pi-compatible extensions. */
