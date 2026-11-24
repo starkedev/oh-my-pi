@@ -40,6 +40,19 @@ import {
 import type { AuthStorage } from "../session/auth-storage";
 import type { MCPAuthChallenge, MCPAuthConfig, MCPServerConfig } from "./types";
 
+/**
+ * The scopes to request: the server's discovered scopes plus any the config
+ * adds (e.g. `offline_access`, which resource metadata often omits, so the
+ * flow would otherwise never get a refresh token). Order kept, duplicates dropped.
+ */
+export function mergeConfiguredScopes(discovered: string | undefined, configured: string | undefined): string {
+	const scopes = new Set<string>();
+	for (const scope of `${discovered ?? ""} ${configured ?? ""}`.split(/\s+/)) {
+		if (scope) scopes.add(scope);
+	}
+	return [...scopes].join(" ");
+}
+
 export function withTimeout<T>(
 	promise: Promise<T>,
 	timeoutMs: number,
@@ -821,7 +834,7 @@ export async function reauthorizeMcpServer(
 		tokenUrl: oauth.tokenUrl,
 		clientId: flowClientId,
 		clientSecret: flowClientSecret,
-		scopes: oauth.scopes || runtimeBaseConfig.oauth?.scope || "",
+		scopes: mergeConfiguredScopes(oauth.scopes, runtimeBaseConfig.oauth?.scope),
 		callbackPort: found.config.oauth?.callbackPort,
 		callbackPath: found.config.oauth?.callbackPath,
 		redirectUri: found.config.oauth?.redirectUri,
