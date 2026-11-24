@@ -3,6 +3,7 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { MessageChannel, type MessagePort, receiveMessageOnPort } from "node:worker_threads";
 import { isRecord, logger, Snowflake, workerHostEntry } from "@oh-my-pi/pi-utils";
+import { AGENT_MARKER_ENV } from "../../exec/non-interactive-env";
 import {
 	createWorkerHandle,
 	createWorkerSubprocess,
@@ -1065,7 +1066,7 @@ function spawnBunWorker(): JsEvalWorkerHandle {
 function spawnJsProcess(sessionId?: string): JsEvalWorkerHandle {
 	const spawned = createWorkerSubprocess<WorkerOutbound>({
 		spawnCommand: resolveWorkerSpawnCmd(JS_EVAL_PROCESS_ARG, { sameBuild: true }),
-		env: workerEnvFromParent(),
+		env: workerEnvFromParent(AGENT_MARKER_ENV),
 		exitLabel: "JS eval worker",
 		detached: shouldDetachKernel(process.platform),
 		reportCleanExit: true,

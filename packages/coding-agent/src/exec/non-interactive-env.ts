@@ -57,6 +57,18 @@ export const NON_INTERACTIVE_ENV: Readonly<Record<string, string>> = {
 };
 
 /**
+ * The markers a bash-tool shell carries (`OMPCODE` and `CLAUDECODE` from the
+ * spawn env, `AGENT` from {@link NON_INTERACTIVE_ENV}), for the eval kernels:
+ * a command a kernel spawns is as agent-run as one from bash, and tools that
+ * refuse coding agents look for these.
+ */
+export const AGENT_MARKER_ENV: Readonly<Record<string, string>> = {
+	OMPCODE: "1",
+	CLAUDECODE: "1",
+	AGENT: "1",
+};
+
+/**
  * Locale pinned for agent commands: byte-order collation, `C` numbers, dates,
  * and English messages like `C`, but UTF-8 text, which `C` would split into bytes.
  */

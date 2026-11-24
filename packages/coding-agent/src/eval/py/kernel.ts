@@ -11,6 +11,7 @@
 import * as path from "node:path";
 import { $env, $flag, isBunTestRuntime, logger, Snowflake } from "@oh-my-pi/pi-utils";
 import { Settings } from "../../config/settings";
+import { AGENT_MARKER_ENV } from "../../exec/non-interactive-env";
 import { registerOnBoard } from "../../daemon/client";
 import {
 	BaseKernel,
@@ -361,6 +362,7 @@ export class PythonKernel extends BaseKernel<PythonKernelExecuteOptions> {
 		// UTF-8 mode: text-mode subprocess pipes otherwise decode with the ANSI code page on
 		// Windows, and a decode error in CPython's pipe reader thread yields `stdout=None`.
 		spawnEnv.PYTHONUTF8 = "1";
+		Object.assign(spawnEnv, AGENT_MARKER_ENV);
 
 		const scriptPath = await stageRunnerScript("omp-python-runner", "py", RUNNER_SCRIPT);
 		const kernel = new PythonKernel(Snowflake.next(), runtime.pythonPath);
